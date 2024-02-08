@@ -1,5 +1,5 @@
 [package]
-name = "rust-lambda"
+name = "axum-sse"
 version = "0.1.0"
 edition = "2021"
 

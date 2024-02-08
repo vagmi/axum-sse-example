@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 use sqlx::postgres::PgPoolOptions;
+use tokio::net::TcpListener;
 
 #[derive(Debug, Clone)]
 struct AppState {
@@ -115,24 +116,11 @@ async fn main() -> Result<()> {
         .layer(CompressionLayer::new().gzip(true).deflate(true))
         .with_state(state);
 
-    #[cfg(debug_assertions)]
-    {
-        use tokio::net::TcpListener;
-        let listener = TcpListener::bind("0..0.0.0:3000").await?;
-        axum::serve(listener, app.into_make_service())
-            .await
-            .unwrap();
-    }
+    let listener = TcpListener::bind("0..0.0.0:3000").await?;
+    axum::serve(listener, app.into_make_service())
+        .await
+        .unwrap();
 
     // If we compile in release mode, use the Lambda Runtime
-    #[cfg(not(debug_assertions))]
-    {
-        // To run with AWS Lambda runtime, wrap in our `LambdaLayer`
-        let app = tower::ServiceBuilder::new()
-            .layer(axum_aws_lambda::LambdaLayer::default())
-            .service(app);
-
-        lambda_http::run(app).await.unwrap();
-    }
     Ok(())
 }
