@@ -1,11 +1,16 @@
+use std::convert::Infallible;
+use std::time::Duration;
+
 use anyhow::Result;
 use axum::body::Body;
 use axum::extract::State;
 use axum::response::IntoResponse;
 
+use axum::response::sse::KeepAlive;
 use axum::{
     routing::{get, post},
     Json, Router,
+    response::sse::{Event, Sse}
 };
 use hyper::{http::{Request, header::{ACCEPT, ACCEPT_ENCODING, 
                                      AUTHORIZATION, CONTENT_TYPE, ORIGIN}}, 
@@ -15,6 +20,8 @@ use serde_json::json;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
+use tokio_stream::StreamExt as _;
+use futures_util::stream::{self, Stream};
 
 #[derive(Debug, Clone)]
 struct AppState {
@@ -78,6 +85,21 @@ async fn get_todos(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+async fn sse_handler() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    tracing::info!("creating sse stream");
+    let stream = stream::repeat_with(|| {
+        Ok(Event::default().data("hello"))
+    }).throttle(Duration::from_secs(3));
+
+    let sse = Sse::new(stream).keep_alive(
+        KeepAlive::new()
+        .interval(Duration::from_secs(5))
+        .text("keep alive")
+    );
+    sse
+}
+
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -111,12 +133,12 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", post(create_todo))
         .route("/", get(get_todos))
+        .route("/sse", get(sse_handler))
         .layer(cors_layer)
         .layer(trace_layer)
-        .layer(CompressionLayer::new().gzip(true).deflate(true))
         .with_state(state);
 
-    let listener = TcpListener::bind("0..0.0.0:3000").await?;
+    let listener = TcpListener::bind("0.0.0.0:3000").await?;
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
@@ -124,3 +146,4 @@ async fn main() -> Result<()> {
     // If we compile in release mode, use the Lambda Runtime
     Ok(())
 }
+
